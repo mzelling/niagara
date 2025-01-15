@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "Niagara"
+version = "0.1.0"
+authors = [
+  { name="Mike Zellinger", email="mike.j.zellinger@gmail.com" },
+  { name="Rex Liu", email="rexpository@gmail.com" }
+]
+description = "Build LLM cascades from arbitrary LLMs available through public APIs."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy",
+  "matplotlib",
+  "scipy",
+  "tqdm",
+  "python-dotenv",
+  "openai",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+]
