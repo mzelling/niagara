@@ -503,6 +503,9 @@ class Chain:
                 all_latencies=all_latencies,
                 all_tokens=all_tokens
             )
+    
+    def __len__(self):
+        return len(self.model_names)
         
     
 class PreferenceChain(Chain):
