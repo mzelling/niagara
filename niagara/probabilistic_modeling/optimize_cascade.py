@@ -644,7 +644,7 @@ def retrieve_trivariate_integral_value(
     
     assert (t0 >= t0_bounds[0]) and (t0 <= t0_bounds[1]), f"t0 must be between {t0_bounds[0]} and {t0_bounds[1]}"
     assert (t1 >= t1_bounds[0]) and (t1 <= t1_bounds[1]), f"t1 must be between {t1_bounds[0]} and {t1_bounds[1]}"
-    print("s0:", s0, f" | supposed bounds: [{t0_bounds[0]}, {t0}]")
+    # print("s0:", s0, f" | supposed bounds: [{t0_bounds[0]}, {t0}]")
     # assert (s0 >= t0_bounds[0]) and (s0 <= t0), f"s0 must be between {t0_bounds[0]} and {t0}; received {s0}"
 
     residual_t0 = map_to_grid_idx(t0, t0_bounds[0], t0_bounds[1], t0_grid, float=True)
@@ -729,6 +729,8 @@ def train_probability_model(
                             "smooth_marginals": smooth_marginals,
                     }
                     prob_models[i].append(marginal_data)
+                    bivariate_integral_tables[i].append("N/A")
+                    trivariate_integral_tables[i].append("N/A")
 
                     # for the last model, add the univariate integral table
                     if (i == n_models-1):
