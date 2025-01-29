@@ -919,7 +919,8 @@ def compute_metrics(T, model_indices, expected_uncumulated_costs, results, recor
     ]), str(T) + "\n" + str(results['bounds'])
 
     # check that delegation thresholds are greater than the abstention thresholds
-    assert np.all([ t >= s for t,s in zip(T, S[:-1]) ])
+    if S is not None:
+        assert np.all([ t >= s for t,s in zip(T, S[:-1]) ])
 
     if record_all_values:
         deferral_terms = (-1)*np.ones(shape=(len(model_indices)-1,))
@@ -940,22 +941,22 @@ def compute_metrics(T, model_indices, expected_uncumulated_costs, results, recor
         T[0], first_model_prob_model['min_max'], 
         **results['univariate_integral_tables'][model_indices[0]]
     )
-    first_model_terminal_cost_term = (1-first_model_deferral_prob) * effective_costs[0]
-    # Accumulate
-    full_expected_correctness += first_model_terminal_correctness_term
-    full_expected_cost += first_model_terminal_cost_term
 
     # first model abstains with P(phi_1 < s_1) = P(phi_1 < t_1) - P(phi_1 < t_1, phi_1 > s_1)
     first_model_abstention_prob = (
         compute_marginal_thresholded_prob(T[0], s0=0.0, **first_model_prob_model)
         - first_model_deferral_prob
     )
-    full_expected_abstention += first_model_abstention_prob
-
-    full_deferral_prob *= first_model_deferral_prob
     # Build the record of deferral probabilities
     conditional_abstention_probs.append(first_model_abstention_prob)
     conditional_deferral_probs.append(first_model_deferral_prob)
+
+    first_model_terminal_cost_term = (1-first_model_deferral_prob) * effective_costs[0]
+    # Accumulate
+    full_expected_abstention += first_model_abstention_prob
+    full_deferral_prob *= first_model_deferral_prob
+    full_expected_correctness += (1-first_model_abstention_prob) * first_model_terminal_correctness_term
+    full_expected_cost += first_model_terminal_cost_term
 
     # INTERMEDIATE MODELS (IF ANY): TRANSITION BETWEEN MODELS
     for step_idx in range(1, len(model_indices)-1):
@@ -981,11 +982,6 @@ def compute_metrics(T, model_indices, expected_uncumulated_costs, results, recor
                 **results['trivariate_integral_tables'][prev_model_idx][curr_model_idx]
             )
 
-        terminal_cost_term = (1-deferral_prob) * effective_costs[step_idx]
-        # Accumulate
-        full_expected_correctness += full_deferral_prob * terminal_correctness_term
-        full_expected_cost += full_deferral_prob * terminal_cost_term
-
         # intermediate model abstains by subtracing deferral prob from deferral prob with s1=0.0
         abstention_prob = (
             compute_conditional_deferral_prob(
@@ -993,6 +989,12 @@ def compute_metrics(T, model_indices, expected_uncumulated_costs, results, recor
             ) 
             - deferral_prob
         )
+
+        terminal_cost_term = (1-deferral_prob) * effective_costs[step_idx]
+        # Accumulate
+        full_expected_correctness += (full_deferral_prob) * (1-abstention_prob) * terminal_correctness_term
+        full_expected_cost += full_deferral_prob * terminal_cost_term
+
         full_expected_abstention += full_deferral_prob * abstention_prob
 
         full_deferral_prob *= deferral_prob
@@ -1005,17 +1007,17 @@ def compute_metrics(T, model_indices, expected_uncumulated_costs, results, recor
     last_min_max = results['prob_models'][model_indices[-2]][model_indices[-1]]['min_max']
 
     if S is None:
-        last_terminal_correctness_term = retrieve_bivariate_integral_value(
+        last_model_terminal_correctness_term = retrieve_bivariate_integral_value(
             t0=T[-1], t1=last_min_max[0][1], min_max=last_min_max,
             **results['bivariate_integral_tables'][model_indices[-2]][model_indices[-1]]
         )
     else:
         # note that since len(S) = len(T) + 1, S[-2] and T[-1] both refer to the penultimate model!
-        last_terminal_correctness_term = retrieve_trivariate_integral_value(
+        last_model_terminal_correctness_term = retrieve_trivariate_integral_value(
             s0=S[-2], t0=T[-1], t1=max(last_min_max[0][1], S[-1]), min_max=last_min_max,
             **results['trivariate_integral_tables'][model_indices[-2]][model_indices[-1]]
         )
-    last_terminal_cost_term = effective_costs[-1]
+    last_model_terminal_cost_term = effective_costs[-1]
     conditional_deferral_probs.append(0.0)
 
     # P(conf_k <= S[k] | conf_[k-1] > s_{k-1} AND conf[k-1] <= t_{k-1})
@@ -1024,8 +1026,8 @@ def compute_metrics(T, model_indices, expected_uncumulated_costs, results, recor
     )
     conditional_abstention_probs.append(last_model_abstention_prob)
 
-    full_expected_correctness += full_deferral_prob * last_terminal_correctness_term
-    full_expected_cost += full_deferral_prob * last_terminal_cost_term
+    full_expected_correctness += (full_deferral_prob) * (1-last_model_abstention_prob) * last_model_terminal_correctness_term
+    full_expected_cost += full_deferral_prob * last_model_terminal_cost_term
     full_expected_abstention += full_deferral_prob * last_model_abstention_prob
 
     # normalize expected correctness
@@ -1088,16 +1090,25 @@ def make_loss(model_indices, cost_sensitity, expected_uncumulated_costs, prob_mo
 
 def make_loss_w_abstention(
         model_indices, cost_sensitivity, abstention_sensitivity, 
-        expected_uncumulated_costs, prob_models
+        expected_uncumulated_costs, prob_models,
+        only_allow_abstention_at_last_model=False
     ):
     """ Create the loss function to use inside an off-the-shelf optimizer. """
     n_models = len(model_indices)
-    def output_fun(X):
-        return compute_loss(
-            X[:(n_models-1)], model_indices, cost_sensitivity, expected_uncumulated_costs, prob_models,
-            S=[ t-d for t,d in zip(X[:(n_models-1)], X[(n_models-1):-1]) ] + [ X[-1] ], abstention_sensitivity=abstention_sensitivity
-        )
-    return output_fun
+    if not only_allow_abstention_at_last_model:
+        def output_fun(X):
+            return compute_loss(
+                X[:(n_models-1)], model_indices, cost_sensitivity, expected_uncumulated_costs, prob_models,
+                S=[ t-d for t,d in zip(X[:(n_models-1)], X[(n_models-1):-1]) ] + [ X[-1] ], abstention_sensitivity=abstention_sensitivity
+            )
+        return output_fun
+    else:
+        def output_fun(X):
+            return compute_loss(
+                X[:(n_models-1)], model_indices, cost_sensitivity, expected_uncumulated_costs, prob_models,
+                S=[ 0 for _ in range(n_models-1) ] + [ X[-1] ], abstention_sensitivity=abstention_sensitivity
+            )
+        return output_fun
 
 def make_unpenalized_loss(model_indices, expected_uncumulated_costs, prob_models):
     def output_fun(T):
@@ -1159,6 +1170,7 @@ def optimize_cascade_thresholds(
 def optimize_cascade_thresholds_w_abstention(
         model_indices, cost_sensitivity, abstention_sensitivity,
         expected_uncumulated_costs, prob_models, eps=1e-3, 
+        only_allow_abstention_at_last_model=False,
     ):
     """ 
     Optimize the thresholds (and, optionally, abstention thresholds) of a cascade.
@@ -1174,33 +1186,60 @@ def optimize_cascade_thresholds_w_abstention(
     ]
 
     T0 = [ np.mean(interval) for interval in T_bounds[:-1] ]
-    D0 = [ (t0 - interval[0])/2 for t0, interval in zip(T0, T_bounds[:-1]) ] + [ np.mean(T_bounds[-1]) ]
+
+    if not only_allow_abstention_at_last_model:
+        D0 = [ (t0 - interval[0])/2 for t0, interval in zip(T0, T_bounds[:-1]) ] + [ np.mean(T_bounds[-1]) ]
+    else:
+        D0 = [ np.mean(T_bounds[-1]) ]
 
     T0_bounds = T_bounds[:-1]
-    D0_bounds = [
-        (0, (interval[1] - interval[0])/2) for  interval in T_bounds[:-1]
-    ] + [ T_bounds[-1] ]
+
+    if not only_allow_abstention_at_last_model:
+        D0_bounds = [
+            (0, (interval[1] - interval[0])/2) for  interval in T_bounds[:-1]
+        ] + [ T_bounds[-1] ]
+    else:
+        D0_bounds = [ T_bounds[-1] ]
 
     X0 = T0 + D0
     bounds = T0_bounds + D0_bounds
 
+    # print("X0", X0)
+    # print("T0", T0)
+    # print("D0", D0)
+
     objective_function = make_loss_w_abstention(
         model_indices, cost_sensitivity, abstention_sensitivity, 
-        expected_uncumulated_costs, prob_models
+        expected_uncumulated_costs, prob_models, 
+        only_allow_abstention_at_last_model=only_allow_abstention_at_last_model
     )
     optimization_result = minimize(
         objective_function, X0, method='L-BFGS-B', bounds=bounds
     )
     return optimization_result
 
-def get_TS_from_X(X):
+def get_TS_from_X(X, only_allow_abstention_at_last_model=False):
     """ 
     Compute the deferral thresholds T and abstention thresholds S from the
-    combined variable X. 
+    combined variable X.
+
+    If we only allow abstention at the last model, only the last model has
+    an abstention threshold, so len(X) is equal to the number of models
+    (because there are n_models-1 deferral thresholds, and there is one
+    abstention threshold).
     """
-    n_models = int((len(list(X)) + 1)/2)
+    if not only_allow_abstention_at_last_model:
+        n_models = int((len(list(X)) + 1)/2)
+    else:
+        n_models = len(X)
+
     T = list(X[:(n_models-1)])
-    S = [ max(t-d, 0.0) for t,d in zip(X[:(n_models-1)], X[(n_models-1):-1]) ] + [ X[-1] ]
+
+    if not only_allow_abstention_at_last_model:
+        S = [ max(t-d, 0.0) for t,d in zip(X[:(n_models-1)], X[(n_models-1):-1]) ] + [ X[-1] ]
+    else:
+        S = [ 0 for _ in range(n_models-1) ] + [ X[-1] ]
+
     return T, S
 
 
