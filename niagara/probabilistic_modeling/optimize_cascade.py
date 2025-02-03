@@ -1074,12 +1074,17 @@ def all_subsets(iterable):
 
 
 
-def loss_fn(cost_sensitivity, metrics, abstention_sensitivity=None):
+def loss_fn(cost_sensitivity, metrics, abstention_sensitivity=None, error_type = 'conditional'):
+
+    error_measure = (1-metrics['expected_correctness']) if error_type == 'conditional' else (
+        (1 - metrics['expected_abstention'] - metrics['expected_correctness']) if error_type == 'joint' else np.nan
+    )
+
     if abstention_sensitivity is None:
-        return (1-metrics['expected_correctness']) + cost_sensitivity*metrics['expected_cost']
+        return error_measure + cost_sensitivity*metrics['expected_cost']
     elif abstention_sensitivity is not None:
         return (
-            (1-metrics['expected_correctness'])
+            error_measure
                 + cost_sensitivity*metrics['expected_cost']
                 + abstention_sensitivity*metrics['expected_abstention']
         )
@@ -1101,26 +1106,28 @@ def compute_loss(
     metrics = compute_metrics(
         T, model_indices, expected_uncumulated_costs, prob_models, S=S, error_type=error_type
     )
-    return loss_fn(cost_sensitivity, metrics, abstention_sensitivity=abstention_sensitivity)
+    return loss_fn(
+        cost_sensitivity, metrics, abstention_sensitivity=abstention_sensitivity, error_type=error_type
+    )
 
-def unpenalized_loss_fn(metrics):
-    return (1-metrics['expected_correctness'])
+# def unpenalized_loss_fn(metrics, error_type='conditional'):
+#     return (1-metrics['expected_correctness'])
 
 def compute_cost(T, model_indices, expected_uncumulated_costs, prob_models):
     metrics = compute_metrics(T, model_indices, expected_uncumulated_costs, prob_models)
     return metrics['expected_cost']
 
-def compute_unpenalized_loss(T, model_indices, expected_uncumulated_costs, prob_models):
-    metrics = compute_metrics(T, model_indices, expected_uncumulated_costs, prob_models)
-    return (1-metrics['expected_correctness'])
+# def compute_unpenalized_loss(T, model_indices, expected_uncumulated_costs, prob_models, error):
+#     metrics = compute_metrics(T, model_indices, expected_uncumulated_costs, prob_models)
+#     return (1-metrics['expected_correctness'])
 
-def make_loss(model_indices, cost_sensitity, expected_uncumulated_costs, prob_models):
-    """ Create the loss function to use inside an off-the-shelf optimizer. """
-    def output_fun(T):
-        return compute_loss(
-            T, model_indices, cost_sensitity, expected_uncumulated_costs, prob_models
-        )
-    return output_fun
+# def make_loss(model_indices, cost_sensitity, expected_uncumulated_costs, prob_models):
+#     """ Create the loss function to use inside an off-the-shelf optimizer. """
+#     def output_fun(T):
+#         return compute_loss(
+#             T, model_indices, cost_sensitity, expected_uncumulated_costs, prob_models
+#         )
+#     return output_fun
 
 def make_loss_w_abstention(
         model_indices, cost_sensitivity, abstention_sensitivity, 
@@ -1152,12 +1159,12 @@ def make_loss_w_abstention(
             )
         return output_fun
 
-def make_unpenalized_loss(model_indices, expected_uncumulated_costs, prob_models):
-    def output_fun(T):
-        return compute_unpenalized_loss(
-            T, model_indices, expected_uncumulated_costs, prob_models
-        )
-    return output_fun
+# def make_unpenalized_loss(model_indices, expected_uncumulated_costs, prob_models):
+#     def output_fun(T):
+#         return compute_unpenalized_loss(
+#             T, model_indices, expected_uncumulated_costs, prob_models
+#         )
+#     return output_fun
 
 def make_cost_constraint(model_indices, max_cost, expected_uncumulated_costs, prob_models):
     def output_fun(T):
@@ -1168,45 +1175,45 @@ def make_cost_constraint(model_indices, max_cost, expected_uncumulated_costs, pr
     return output_fun
 
 
-def optimize_cascade_thresholds(
-        model_indices, cost_sensitivity, expected_uncumulated_costs, prob_models, eps=1e-7,
-        max_cost=None, mode='lagrange'
-    ):
-    """ 
-    Optimize the thresholds of a chain.
+# def optimize_cascade_thresholds(
+#         model_indices, cost_sensitivity, expected_uncumulated_costs, prob_models, eps=1e-7,
+#         max_cost=None, mode='lagrange'
+#     ):
+#     """ 
+#     Optimize the thresholds of a chain.
 
-    The cost sensitivity specifies how many percentage points of error the user
-    is willing to incur in order to save $1 per million queries.
-    """
-    bounds = [ 
-        (prob_models['bounds'][idx][0]+eps, prob_models['bounds'][idx][1]-eps) 
-            for idx in model_indices[:-1]
-    ]
-    T0 = [ np.mean(interval) for interval in bounds ]
+#     The cost sensitivity specifies how many percentage points of error the user
+#     is willing to incur in order to save $1 per million queries.
+#     """
+#     bounds = [ 
+#         (prob_models['bounds'][idx][0]+eps, prob_models['bounds'][idx][1]-eps) 
+#             for idx in model_indices[:-1]
+#     ]
+#     T0 = [ np.mean(interval) for interval in bounds ]
 
-    if mode=='lagrange':
-        objective_function = make_loss(
-            model_indices, cost_sensitivity, expected_uncumulated_costs, prob_models
-        )
-        optimization_result = minimize(
-            objective_function, T0, method='L-BFGS-B', bounds=bounds
-        )
-        return optimization_result
+#     if mode=='lagrange':
+#         objective_function = make_loss(
+#             model_indices, cost_sensitivity, expected_uncumulated_costs, prob_models
+#         )
+#         optimization_result = minimize(
+#             objective_function, T0, method='L-BFGS-B', bounds=bounds
+#         )
+#         return optimization_result
     
-    elif mode=='constrained':
-        objective_function = make_unpenalized_loss(
-            model_indices, expected_uncumulated_costs, prob_models
-        )
-        constraint = {
-            'type': 'ineq',
-            'fun': make_cost_constraint(
-                model_indices, max_cost, expected_uncumulated_costs, prob_models
-            )
-        }
-        optimization_result = minimize(
-            objective_function, T0, method='trust-constr', bounds=bounds, constraints=[constraint]
-        )
-    return optimization_result
+#     elif mode=='constrained':
+#         objective_function = make_unpenalized_loss(
+#             model_indices, expected_uncumulated_costs, prob_models
+#         )
+#         constraint = {
+#             'type': 'ineq',
+#             'fun': make_cost_constraint(
+#                 model_indices, max_cost, expected_uncumulated_costs, prob_models
+#             )
+#         }
+#         optimization_result = minimize(
+#             objective_function, T0, method='trust-constr', bounds=bounds, constraints=[constraint]
+#         )
+#     return optimization_result
 
 
 def optimize_cascade_thresholds_w_abstention(
@@ -1343,212 +1350,212 @@ def get_expected_uncumulated_costs(raw_model_costs, results):
     return expected_uncumulated_costs
 
 
-def estimate_max_cost_sensitivity(model_indices, expected_uncumulated_costs, results, compare_idx=0, data=None, mode='hard'):
-    """ 
-    Estimate the maximum cost sensitivity -- the point at which the smallest and
-    least performant model in the cascade is preferable over the biggest and most
-    performant.
-    """
-    if mode=='hard':
-        min_perf = 0
-        max_perf = 1
-    elif mode=='soft':
-        min_perf = np.mean(data[compare_idx])
-        max_perf = np.mean(data[-1])
+# def estimate_max_cost_sensitivity(model_indices, expected_uncumulated_costs, results, compare_idx=0, data=None, mode='hard'):
+#     """ 
+#     Estimate the maximum cost sensitivity -- the point at which the smallest and
+#     least performant model in the cascade is preferable over the biggest and most
+#     performant.
+#     """
+#     if mode=='hard':
+#         min_perf = 0
+#         max_perf = 1
+#     elif mode=='soft':
+#         min_perf = np.mean(data[compare_idx])
+#         max_perf = np.mean(data[-1])
 
-    cumulated_costs = np.cumsum(expected_uncumulated_costs)
-    min_cost = cumulated_costs[compare_idx]
-    max_cost = cumulated_costs[-1]
+#     cumulated_costs = np.cumsum(expected_uncumulated_costs)
+#     min_cost = cumulated_costs[compare_idx]
+#     max_cost = cumulated_costs[-1]
 
-    max_cost_sensitivity = np.abs(max_perf-min_perf)/(0.01 + max_cost-min_cost)
-    return max_cost_sensitivity
+#     max_cost_sensitivity = np.abs(max_perf-min_perf)/(0.01 + max_cost-min_cost)
+#     return max_cost_sensitivity
 
-def profile_cascade_adaptively(
-        model_indices, expected_uncumulated_costs, results, 
-        start_sensitivities=[0, 1e-12, 1e-10, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4],
-        cost_threshold_multiplier=1.25,
-        sensitivity_increase_factor=1.5,
-        stop_val=1e3,
-        max_iterations=100,
-        data=None,
-        mode='lagrange',
-    ):
-    """ 
-    Profile a cascade by adaptively choosing cost sensitivities.
+# def profile_cascade_adaptively(
+#         model_indices, expected_uncumulated_costs, results, 
+#         start_sensitivities=[0, 1e-12, 1e-10, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4],
+#         cost_threshold_multiplier=1.25,
+#         sensitivity_increase_factor=1.5,
+#         stop_val=1e3,
+#         max_iterations=100,
+#         data=None,
+#         mode='lagrange',
+#     ):
+#     """ 
+#     Profile a cascade by adaptively choosing cost sensitivities.
     
-    Args:
-        start_sensitivities: Initial list of cost sensitivities to try
-        cost_threshold_multiplier: If metrics['expected_cost'] > multiplier*expected_uncumulated_costs[0],
-                                 continue with higher sensitivities
-        sensitivity_increase_factor: Factor to increase sensitivity by in adaptive phase
-        stop_val: Maximum cost sensitivity value to try before stopping
-        max_iterations: Maximum number of iterations in the adaptive phase
-    """
-    loss_list = []
-    metrics_list = []
-    optimal_thresholds_list = []
-    cost_sensitivity_values = []
+#     Args:
+#         start_sensitivities: Initial list of cost sensitivities to try
+#         cost_threshold_multiplier: If metrics['expected_cost'] > multiplier*expected_uncumulated_costs[0],
+#                                  continue with higher sensitivities
+#         sensitivity_increase_factor: Factor to increase sensitivity by in adaptive phase
+#         stop_val: Maximum cost sensitivity value to try before stopping
+#         max_iterations: Maximum number of iterations in the adaptive phase
+#     """
+#     loss_list = []
+#     metrics_list = []
+#     optimal_thresholds_list = []
+#     cost_sensitivity_values = []
 
-    # First run through initial cost sensitivities
-    for c in tqdm(start_sensitivities):
-        if len(model_indices) == 1:
-            metrics = compute_metrics(
-                [], model_indices, expected_uncumulated_costs, results
-            )
-            optimal_thresholds = 0.0
-        else:
-            optim_result = optimize_cascade_thresholds(
-                model_indices=model_indices, 
-                cost_sensitivity=c,
-                expected_uncumulated_costs=expected_uncumulated_costs,
-                prob_models=results
-            )
-            metrics = compute_metrics(
-                optim_result.x, model_indices, expected_uncumulated_costs, results
-            )
-            optimal_thresholds = optim_result.x
+#     # First run through initial cost sensitivities
+#     for c in tqdm(start_sensitivities):
+#         if len(model_indices) == 1:
+#             metrics = compute_metrics(
+#                 [], model_indices, expected_uncumulated_costs, results
+#             )
+#             optimal_thresholds = 0.0
+#         else:
+#             optim_result = optimize_cascade_thresholds(
+#                 model_indices=model_indices, 
+#                 cost_sensitivity=c,
+#                 expected_uncumulated_costs=expected_uncumulated_costs,
+#                 prob_models=results
+#             )
+#             metrics = compute_metrics(
+#                 optim_result.x, model_indices, expected_uncumulated_costs, results
+#             )
+#             optimal_thresholds = optim_result.x
 
-        loss = loss_fn(c, metrics)
-        metrics_list.append(metrics)
-        loss_list.append(loss)
-        optimal_thresholds_list.append(optimal_thresholds)
-        cost_sensitivity_values.append(c)
+#         loss = loss_fn(c, metrics, error_type=error_type)
+#         metrics_list.append(metrics)
+#         loss_list.append(loss)
+#         optimal_thresholds_list.append(optimal_thresholds)
+#         cost_sensitivity_values.append(c)
 
-    # Check if we need to continue with higher sensitivities
-    if metrics['expected_cost'] > cost_threshold_multiplier * expected_uncumulated_costs[0]:
-        # Continue with adaptive phase
-        current_sensitivity = cost_sensitivity_values[-1]
-        iteration_count = 0
-        while (metrics['expected_cost'] > cost_threshold_multiplier * expected_uncumulated_costs[0] 
-               and current_sensitivity < stop_val
-               and iteration_count < max_iterations):
-            # Increase sensitivity
-            current_sensitivity *= sensitivity_increase_factor
-            iteration_count += 1
+#     # Check if we need to continue with higher sensitivities
+#     if metrics['expected_cost'] > cost_threshold_multiplier * expected_uncumulated_costs[0]:
+#         # Continue with adaptive phase
+#         current_sensitivity = cost_sensitivity_values[-1]
+#         iteration_count = 0
+#         while (metrics['expected_cost'] > cost_threshold_multiplier * expected_uncumulated_costs[0] 
+#                and current_sensitivity < stop_val
+#                and iteration_count < max_iterations):
+#             # Increase sensitivity
+#             current_sensitivity *= sensitivity_increase_factor
+#             iteration_count += 1
             
-            # Optimize with new sensitivity
-            if len(model_indices) == 1:
-                metrics = compute_metrics(
-                    [], model_indices, expected_uncumulated_costs, results
-                )
-                optimal_thresholds = 0.0
-            else:
-                optim_result = optimize_cascade_thresholds(
-                    model_indices=model_indices, 
-                    cost_sensitivity=current_sensitivity,
-                    expected_uncumulated_costs=expected_uncumulated_costs,
-                    prob_models=results
-                )
-                metrics = compute_metrics(
-                    optim_result.x, model_indices, expected_uncumulated_costs, results
-                )
-                optimal_thresholds = optim_result.x
+#             # Optimize with new sensitivity
+#             if len(model_indices) == 1:
+#                 metrics = compute_metrics(
+#                     [], model_indices, expected_uncumulated_costs, results
+#                 )
+#                 optimal_thresholds = 0.0
+#             else:
+#                 optim_result = optimize_cascade_thresholds(
+#                     model_indices=model_indices, 
+#                     cost_sensitivity=current_sensitivity,
+#                     expected_uncumulated_costs=expected_uncumulated_costs,
+#                     prob_models=results
+#                 )
+#                 metrics = compute_metrics(
+#                     optim_result.x, model_indices, expected_uncumulated_costs, results
+#                 )
+#                 optimal_thresholds = optim_result.x
 
-            loss = loss_fn(current_sensitivity, metrics)
-            metrics_list.append(metrics)
-            loss_list.append(loss)
-            optimal_thresholds_list.append(optimal_thresholds)
-            cost_sensitivity_values.append(current_sensitivity)
+#             loss = loss_fn(current_sensitivity, metrics, error_type=error_type)
+#             metrics_list.append(metrics)
+#             loss_list.append(loss)
+#             optimal_thresholds_list.append(optimal_thresholds)
+#             cost_sensitivity_values.append(current_sensitivity)
 
-    return (
-        { "cost_sensitivity": cost_sensitivity_values,
-            "loss": loss_list,
-            "optimal_thresholds": optimal_thresholds_list }
-        | { key: [ record[key] for record in metrics_list ] for key in metrics_list[0].keys() }
-    )
+#     return (
+#         { "cost_sensitivity": cost_sensitivity_values,
+#             "loss": loss_list,
+#             "optimal_thresholds": optimal_thresholds_list }
+#         | { key: [ record[key] for record in metrics_list ] for key in metrics_list[0].keys() }
+#     )
 
-def profile_cascade(
-        model_indices, expected_uncumulated_costs, results, 
-        n_grid=40, multiply_max_cost_sensitivity=1.0, data=None,
-        density_multiplier_for_last_bucket=3.0, mode='lagrange',
-        multiply_sensitivity=1.0,
-    ):
-    """ 
-    Profile a cascade by optimizing the thresholds for each cost sensitivity. 
+# def profile_cascade(
+#         model_indices, expected_uncumulated_costs, results, 
+#         n_grid=40, multiply_max_cost_sensitivity=1.0, data=None,
+#         density_multiplier_for_last_bucket=3.0, mode='lagrange',
+#         multiply_sensitivity=1.0,
+#     ):
+#     """ 
+#     Profile a cascade by optimizing the thresholds for each cost sensitivity. 
 
-    The parameter n_grid chooses at how many different cost sensitivities to evaluate
-    each cascade.
-    """
-    loss_list = []
-    metrics_list = []
-    optimal_thresholds_list = []
+#     The parameter n_grid chooses at how many different cost sensitivities to evaluate
+#     each cascade.
+#     """
+#     loss_list = []
+#     metrics_list = []
+#     optimal_thresholds_list = []
 
-    if mode=='lagrange':
-        min_cost_sensitivity = 0.0
-        max_cost_sensitivity = multiply_max_cost_sensitivity * estimate_max_cost_sensitivity(model_indices, expected_uncumulated_costs, results)
-        middle_pegs = sorted([
-            multiply_sensitivity * estimate_max_cost_sensitivity(model_indices, expected_uncumulated_costs, results, compare_idx=i, data=data, mode='soft')
-                for i in model_indices
-        ])
-        pegs = np.unique([min_cost_sensitivity, *middle_pegs])
+#     if mode=='lagrange':
+#         min_cost_sensitivity = 0.0
+#         max_cost_sensitivity = multiply_max_cost_sensitivity * estimate_max_cost_sensitivity(model_indices, expected_uncumulated_costs, results)
+#         middle_pegs = sorted([
+#             multiply_sensitivity * estimate_max_cost_sensitivity(model_indices, expected_uncumulated_costs, results, compare_idx=i, data=data, mode='soft')
+#                 for i in model_indices
+#         ])
+#         pegs = np.unique([min_cost_sensitivity, *middle_pegs])
 
-        mid_cost_sensitivity_values = np.concatenate(
-            [ 10**np.linspace(
-                    1e-14+np.log10(pegs[i-1]), 1e-14+np.log10(pegs[i]),  int(np.floor(n_grid / (len(pegs)-1)))
-                )[:-1] for i in range(1, len(pegs)) ]
-        )
-        mid_cost_sensitivity_values[np.isnan(mid_cost_sensitivity_values)] = 0.0
+#         mid_cost_sensitivity_values = np.concatenate(
+#             [ 10**np.linspace(
+#                     1e-14+np.log10(pegs[i-1]), 1e-14+np.log10(pegs[i]),  int(np.floor(n_grid / (len(pegs)-1)))
+#                 )[:-1] for i in range(1, len(pegs)) ]
+#         )
+#         mid_cost_sensitivity_values[np.isnan(mid_cost_sensitivity_values)] = 0.0
 
-        high_cost_sensitivity_values = 10**np.linspace(
-            np.log10(middle_pegs[-1]), np.log10(max_cost_sensitivity),
-            int(density_multiplier_for_last_bucket*(np.floor(n_grid / (len(pegs)-1))))
-        )
+#         high_cost_sensitivity_values = 10**np.linspace(
+#             np.log10(middle_pegs[-1]), np.log10(max_cost_sensitivity),
+#             int(density_multiplier_for_last_bucket*(np.floor(n_grid / (len(pegs)-1))))
+#         )
 
-        cost_sensitivity_values = np.concatenate(
-            [mid_cost_sensitivity_values, high_cost_sensitivity_values]
-        )
+#         cost_sensitivity_values = np.concatenate(
+#             [mid_cost_sensitivity_values, high_cost_sensitivity_values]
+#         )
 
-        print(cost_sensitivity_values)
+#         print(cost_sensitivity_values)
 
-        for c in tqdm(cost_sensitivity_values):
-            if len(model_indices) == 1:
-                metrics = compute_metrics(
-                    [], model_indices, expected_uncumulated_costs, results
-                )
-                optimal_thresholds = 0.0
-            else:
-                optim_result = optimize_cascade_thresholds(
-                    model_indices=model_indices, 
-                    cost_sensitivity=c,
-                    expected_uncumulated_costs=expected_uncumulated_costs,
-                    prob_models=results
-                )
-                metrics = compute_metrics(
-                    optim_result.x, model_indices, expected_uncumulated_costs, results
-                )
-                optimal_thresholds = optim_result.x
+#         for c in tqdm(cost_sensitivity_values):
+#             if len(model_indices) == 1:
+#                 metrics = compute_metrics(
+#                     [], model_indices, expected_uncumulated_costs, results
+#                 )
+#                 optimal_thresholds = 0.0
+#             else:
+#                 optim_result = optimize_cascade_thresholds(
+#                     model_indices=model_indices, 
+#                     cost_sensitivity=c,
+#                     expected_uncumulated_costs=expected_uncumulated_costs,
+#                     prob_models=results
+#                 )
+#                 metrics = compute_metrics(
+#                     optim_result.x, model_indices, expected_uncumulated_costs, results
+#                 )
+#                 optimal_thresholds = optim_result.x
 
-            loss = loss_fn(c, metrics)
-            metrics_list.append(metrics)
-            loss_list.append(loss)
-            optimal_thresholds_list.append(optimal_thresholds)
+#             loss = loss_fn(c, metrics, error_type=error_type)
+#             metrics_list.append(metrics)
+#             loss_list.append(loss)
+#             optimal_thresholds_list.append(optimal_thresholds)
         
-        return (
-            { "cost_sensitivity": cost_sensitivity_values,
-                "loss": loss_list,
-                "optimal_thresholds": optimal_thresholds_list }
-            | { key: [ record[key] for record in metrics_list ] for key in metrics_list[0].keys() }
-        )
+#         return (
+#             { "cost_sensitivity": cost_sensitivity_values,
+#                 "loss": loss_list,
+#                 "optimal_thresholds": optimal_thresholds_list }
+#             | { key: [ record[key] for record in metrics_list ] for key in metrics_list[0].keys() }
+#         )
 
 
-def profile_all_cascades(expected_uncumulated_costs, results, n_grid=10):
-    cascade_records = []
-    n_models = len(expected_uncumulated_costs)
+# def profile_all_cascades(expected_uncumulated_costs, results, n_grid=10):
+#     cascade_records = []
+#     n_models = len(expected_uncumulated_costs)
 
-    for last_model_idx in tqdm(range(n_models)):
-        possible_ancestors = { i for i in range(0, last_model_idx) }
-        if len(possible_ancestors) == 0:
-            model_indices = [last_model_idx]
-            output = profile_cascade(model_indices, expected_uncumulated_costs, results, n_grid)
-            cascade_records.append({"model_indices": model_indices, "output": output})
-            continue
-        # Consider all possible subsets of ancestors
-        for preceding_models in all_subsets(possible_ancestors):
-            model_indices = sorted(preceding_models) + [last_model_idx]
-            output = profile_cascade(model_indices, expected_uncumulated_costs, results, n_grid)
-            cascade_records.append({"model_indices": model_indices, "output": output})
+#     for last_model_idx in tqdm(range(n_models)):
+#         possible_ancestors = { i for i in range(0, last_model_idx) }
+#         if len(possible_ancestors) == 0:
+#             model_indices = [last_model_idx]
+#             output = profile_cascade(model_indices, expected_uncumulated_costs, results, n_grid)
+#             cascade_records.append({"model_indices": model_indices, "output": output})
+#             continue
+#         # Consider all possible subsets of ancestors
+#         for preceding_models in all_subsets(possible_ancestors):
+#             model_indices = sorted(preceding_models) + [last_model_idx]
+#             output = profile_cascade(model_indices, expected_uncumulated_costs, results, n_grid)
+#             cascade_records.append({"model_indices": model_indices, "output": output})
 
-    return cascade_records
+#     return cascade_records
 
 
 def route_and_score_query(thresholds, calibrated_conf, score_test, start_model_index=0, abstention_thresholds=None):
