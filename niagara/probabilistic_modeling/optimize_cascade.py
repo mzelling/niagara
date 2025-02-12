@@ -933,7 +933,7 @@ def compute_metrics(T, model_indices, expected_uncumulated_costs, results, recor
         # assert np.all([ t >= s for t,s in zip(T, S[:-1]) ])
         if not np.all([ t >= s for t,s in zip(T, S[:-1]) ]):
             print("HEYYA!", T, S[:-1], S[-1])
-
+    
     if record_all_values:
         deferral_terms = (-1)*np.ones(shape=(len(model_indices)-1,))
         terminal_terms = (-1)*np.ones(shape=(len(model_indices),))
@@ -1640,3 +1640,55 @@ def score_cascade(
             i: np.mean(corr_and_cost[:,-1] == i) for i in range(len(model_indices))
         }
     }
+
+def compute_loss_from_score(score, lambda_cost, lambda_abs, error_type='conditional'):
+    if error_type == 'conditional':
+        error_measure = 1-score['expected_correctness_test']
+    elif error_type == 'joint':
+        error_measure = 1-score['expected_abstention_test']-score['expected_correctness_test']
+    return (
+        error_measure 
+        + lambda_cost*score['expected_cost_test']
+        + lambda_abs*score['expected_abstention_test']
+    )
+
+
+def compute_results_grids(model_indices, T_2d, S_2d, lambda_cost_grid, lambda_abs_grid, data, expected_uncumulated_costs, error_type='conditional'):
+    """ Score a cascade over a grid of user preferences. """
+    loss_grid = []
+    cost_grid = []
+    abstention_grid = []
+    error_grid = []
+
+    for i, lambda_abs in enumerate(lambda_abs_grid):
+
+        # create the rows
+        for grid in [ loss_grid, cost_grid, abstention_grid, error_grid ]:
+            grid.append([])
+
+        for j, lambda_cost in enumerate(lambda_cost_grid):
+
+            T = T_2d[i][j]
+            S = S_2d[i][j]
+
+            score = score_cascade(
+                T, model_indices, expected_uncumulated_costs, test_data=data, abstention_thresholds=S,
+                error_type=error_type
+            )
+
+            loss = compute_loss_from_score(score, lambda_cost, lambda_abs, error_type=error_type)
+            loss_grid[i].append(loss)
+
+            for grid, metric_name in [
+                (cost_grid, 'expected_cost_test'),
+                (error_grid, 'expected_correctness_test'),
+                (abstention_grid, 'expected_abstention_test')
+            ]:
+                error_measure = (1-score['expected_correctness_test']) if error_type=='conditional' else ((1-score['expected_abstention_test']-score['expected_correctness_test']) if error_type=='joint' else np.nan)
+                grid[i].append(score[metric_name] if metric_name != "expected_correctness_test" else error_measure)
+
+    grids = {
+        "loss": loss_grid, "error": error_grid, "abstention": abstention_grid, "cost": cost_grid
+    }
+
+    return grids
