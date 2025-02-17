@@ -1692,3 +1692,117 @@ def compute_results_grids(model_indices, T_2d, S_2d, lambda_cost_grid, lambda_ab
     }
 
     return grids
+
+
+def detect_outlier_vectors(grid, r=4.0):
+    """
+    Detect threshold vectors that are significantly different from their neighbors,
+    when computing optimal thresholds on 2D grid matching user preferences regarding
+    cost sensitivity and abstention sensitivity.
+    
+    Parameters
+    ----------
+        grid: 3D numpy array (N x N x 2) of threshold vectors
+        r: Factor to multiply neighbor variance by for outlier detection
+            
+    Returns
+    -------
+        Boolean array of same shape as grid[:,:] where True indicates outlier vectors
+    """
+    grid = np.array(grid)
+    height, width = grid.shape[:2]
+    outliers = np.zeros((height, width), dtype=bool)
+    
+    # First replace each vector with its mean
+    mean_values = np.mean(grid, axis=-1)
+    
+    for i in range(height):
+        for j in range(width):
+            # Get valid neighbor positions
+            neighbors = []
+            neighbor_coords = []
+            
+            # Up neighbor
+            if i > 0:
+                neighbor_coords.append((i-1, j))
+            # Down neighbor
+            if i < height - 1:
+                neighbor_coords.append((i+1, j))
+            # Left neighbor
+            if j > 0:
+                neighbor_coords.append((i, j-1))
+            # Right neighbor
+            if j < width - 1:
+                neighbor_coords.append((i, j+1))
+            
+            if len(neighbor_coords) < 2:  # Skip if not enough neighbors
+                continue
+                
+            # Get neighbor values
+            neighbor_values = [mean_values[ni, nj] for ni, nj in neighbor_coords]
+            
+            # Compute statistics
+            neighbor_mean = np.mean(neighbor_values)
+            neighbor_var = np.var(neighbor_values)
+            
+            # Skip if neighbor variance is too small to be meaningful
+            if neighbor_var < 1e-10:
+                continue
+            
+            # Compute squared difference from neighbor mean
+            squared_diff = (mean_values[i, j] - neighbor_mean) ** 2
+            
+            # Mark as outlier if squared difference is more than r times neighbor variance
+            if squared_diff > r * neighbor_var:
+                outliers[i, j] = True
+    
+    return outliers
+
+def smooth_outliers(grid, r=4.0):
+    """
+    Smooth the threshold vectors that are identified as outliers on a 2D grid.
+    
+    Parameters
+    ----------
+        grid: 3D numpy array (N x N x 2) of threshold vectors
+        r: Factor to multiply neighbor variance by for outlier detection
+            
+    Returns
+    -------
+        Modified grid where only outlier positions have been smoothed
+    """
+    grid = np.array(grid)
+    
+    # Find outlier positions
+    outliers = detect_outlier_vectors(grid, r)
+    
+    # Create output array, starting with a copy of input
+    result = grid.copy()
+    
+    height, width = grid.shape[:2]
+    
+    # Only smooth the outlier positions
+    for i in range(height):
+        for j in range(width):
+            if outliers[i, j]:  # Only process if it's an outlier
+                # Get valid neighbor vectors
+                neighbors = []
+                
+                # Up neighbor
+                if i > 0:
+                    neighbors.append(grid[i-1, j])
+                # Down neighbor
+                if i < height - 1:
+                    neighbors.append(grid[i+1, j])
+                # Left neighbor
+                if j > 0:
+                    neighbors.append(grid[i, j-1])
+                # Right neighbor
+                if j < width - 1:
+                    neighbors.append(grid[i, j+1])
+                
+                # Convert to numpy array and take mean
+                neighbors = np.array(neighbors)
+                result[i, j] = np.mean(neighbors, axis=0)
+    
+    return result, outliers

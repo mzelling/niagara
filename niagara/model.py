@@ -14,7 +14,7 @@ class Model:
         conf_signal: ConfidenceSignal = ModelIntrinsicLogProb(),
         conf_signal_transform: ConfidenceSignalTransformation = NullTransformation(),
         conf_signal_calibrator: ConfidenceSignalCalibrator = NullCalibrator(),
-        client: APIClient = FireworksClient(),
+        client: APIClient = None,
     ):
         """
         Initialize a model.
@@ -24,6 +24,10 @@ class Model:
         self.conf_signal = conf_signal
         self.conf_signal_transform = conf_signal_transform
         self.conf_signal_calibrator = conf_signal_calibrator
+
+        if client is None:
+            client = FireworksClient()
+            
         self.client = client
 
         # figure out the cost per million tokens
