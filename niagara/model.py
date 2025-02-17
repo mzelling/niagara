@@ -31,8 +31,10 @@ class Model:
         self.client = client
 
         # figure out the cost per million tokens
-        self.model_info = self.client.models.get(self.model_name)
-        self.cpm_tokens = {"in": self.model_info['input_cost'], "out": self.model_info['output_cost'] }
+
+        if self.client is not None:
+            self.model_info = self.client.models.get(self.model_name)
+            self.cpm_tokens = {"in": self.model_info['input_cost'], "out": self.model_info['output_cost'] }
 
     
     def __repr__(self) -> str:
