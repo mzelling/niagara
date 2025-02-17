@@ -25,8 +25,8 @@ class Model:
         self.conf_signal_transform = conf_signal_transform
         self.conf_signal_calibrator = conf_signal_calibrator
 
-        if client is None:
-            client = FireworksClient()
+        # if client is None:
+        #     client = FireworksClient()
             
         self.client = client
 
