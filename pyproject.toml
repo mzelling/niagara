@@ -14,11 +14,16 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
   "numpy",
+  "pandas",
+  "statsmodels",
   "matplotlib",
   "scipy",
   "tqdm",
   "python-dotenv",
   "openai",
+  "fireworks-ai",
+  "anthropic",
+  "together"
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
