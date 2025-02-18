@@ -12,7 +12,8 @@
         "qwen2.5-32b-instruct": ["accounts/fireworks/models/qwen2p5-32b-instruct", 0.90, 0.90],
         "qwen2.5-32b-coder-instruct": ["accounts/fireworks/models/qwen2p5-coder-32b-instruct", 0.90, 0.90],
         "qwen1.5-72b-chat": ["accounts/fireworks/models/qwen1p5-72b-chat", 0.90, 0.90],
-        "qwen2.5-72b-instruct": ["accounts/fireworks/models/qwen2p5-72b-instruct", 0.90, 0.90]
+        "qwen2.5-72b-instruct": ["accounts/fireworks/models/qwen2p5-72b-instruct", 0.90, 0.90],
+        "deepseek-r1": ["accounts/fireworks/models/deepseek-r1", 3.00, 8.00]
     },
     "openai": {
         "gpt-3.5-turbo": ["gpt-3.5-turbo", 3.00, 6.00],
