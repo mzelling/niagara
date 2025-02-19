@@ -1,6 +1,7 @@
 from anthropic import Anthropic
 from .api_client import APIClient, ModelNotFoundError
 from time import time
+import numpy as np
 
 
 class AnthropicClient(APIClient):
@@ -53,7 +54,7 @@ class AnthropicClient(APIClient):
         num_tokens = {"in": input_tokens, "out": output_tokens}
 
         content = response.content[0].text
-        token_logprobs = []
+        token_logprobs = [-np.inf] * (output_tokens)
         return content, token_logprobs, total_cost, network_latency, num_tokens
 
 

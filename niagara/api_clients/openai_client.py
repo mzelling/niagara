@@ -1,7 +1,9 @@
 from openai import OpenAI
 from .api_client import APIClient, ModelNotFoundError
 from time import time
+import numpy as np
 
+REASONING_MODELS = {"o1", "o1-preview", "o1-mini"}
 
 class OpenAIClient(APIClient):
     def __init__(self):
@@ -30,7 +32,7 @@ class OpenAIClient(APIClient):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                logprobs=True,
+                logprobs=True if model_name not in REASONING_MODELS else False,
                 **{
                     k: v
                     for k, v in {
@@ -56,7 +58,7 @@ class OpenAIClient(APIClient):
         content = response.choices[0].message.content
         token_logprobs = [
             token.logprob for token in response.choices[0].logprobs.content
-        ] if (model_info["path"] not in {"o1-preview", "o1-mini"}) else []
+        ] if (model_info["path"] not in REASONING_MODELS) else [-np.inf] * (output_tokens)
         return content, token_logprobs, total_cost, network_latency, num_tokens
 
 
